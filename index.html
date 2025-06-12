@@ -61,10 +61,10 @@
                 <label for="client-id-input" class="block text-sm font-medium text-gray-700 mb-1">Google Client ID</label>
                 <input type="text" id="client-id-input" placeholder="Paste your Client ID here" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
             </div>
-            <button id="auth-button" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+            <button id="auth-button" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out disabled-ui">
                 Sign in with Google
             </button>
-            <p class="text-xs text-gray-500 mt-4">This app requires permissions for Gmail, Calendar, Sheets, and Docs to function.</p>
+            <p id="auth-button-status" class="text-center text-sm text-gray-500 mt-2">Initializing Google Services...</p>
         </div>
 
         <!-- Main Application -->
@@ -182,6 +182,7 @@
         const mainApp = document.getElementById('main-app');
         const clientIdInput = document.getElementById('client-id-input');
         const authButton = document.getElementById('auth-button');
+        const authButtonStatus = document.getElementById('auth-button-status');
         const signOutButton = document.getElementById('sign-out-button');
         const userImage = document.getElementById('user-image');
         const userName = document.getElementById('user-name');
@@ -225,18 +226,20 @@
             'https://www.googleapis.com/auth/gmail.send',
             'https://www.googleapis.com/auth/calendar.events',
             'https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/documents' // Included for future use
+            'https://www.googleapis.com/auth/drive.file' // Needed to find/create the sheet
         ].join(' ');
         
         const DISCOVERY_DOCS = [
             "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest",
             "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
             "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
-            "https://www.googleapis.com/discovery/v1/apis/docs/v1/rest"
+            "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
         ];
         
         let gapi = null;
         let google = null;
+        let tokenClient = null;
+
 
         // --- Utility & Modal Functions ---
         const showModal = (title, message) => {
@@ -337,6 +340,35 @@
         }
 
         // --- Google API & Auth Logic ---
+        function gapiLoaded() {
+            gapi.load('client', initializeGapiClient);
+        }
+
+        async function initializeGapiClient() {
+            // This function is called once the gapi client is loaded.
+            // It prepares the client for API calls.
+            try {
+                await gapi.client.init({
+                    discoveryDocs: DISCOVERY_DOCS,
+                });
+                authButton.classList.remove('disabled-ui');
+                authButtonStatus.textContent = 'Ready to sign in.';
+            } catch (err) {
+                console.error("Error initializing GAPI client", err);
+                authButtonStatus.textContent = 'Error initializing. Please refresh.';
+            }
+        }
+
+        function gisLoaded() {
+            // This function is called once the Google Identity Services script is loaded.
+            // It prepares the OAuth2 token client.
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: state.clientId,
+                scope: API_SCOPES,
+                callback: handleCredentialResponse,
+            });
+        }
+        
         const handleAuthClick = () => {
             state.clientId = clientIdInput.value;
             if (!state.clientId) {
@@ -344,12 +376,15 @@
                 return;
             }
             saveState();
-            const tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: state.clientId,
-                scope: API_SCOPES,
-                callback: handleCredentialResponse,
-            });
-            tokenClient.requestAccessToken();
+
+            // Re-initialize the token client with the potentially new Client ID
+            gisLoaded();
+            
+            if (tokenClient) {
+                tokenClient.requestAccessToken();
+            } else {
+                showModal('Error', 'Google Auth is not ready. Please wait a moment and try again.');
+            }
         };
         
         async function handleCredentialResponse(response) {
@@ -358,24 +393,19 @@
                 return;
             }
             state.accessToken = response.access_token;
-            await loadGapiClient();
-        }
-
-        async function loadGapiClient() {
+            // The GAPI client is already initialized, just set the token
             gapi.client.setToken({ access_token: state.accessToken });
+
             try {
-                for(const doc of DISCOVERY_DOCS) {
-                    await gapi.client.load(doc);
-                }
                 const profile = await gapi.client.gmail.users.getProfile({ userId: 'me' });
                 state.userProfile = profile.result;
                 state.isLoggedIn = true;
                 addLog('Successfully signed in and APIs loaded.', 'success');
                 updateUI();
                 startOrStopEngine();
-            } catch (err) {
-                console.error("GAPI client load error:", err);
-                showModal('API Error', 'Failed to load Google APIs. Check console for details.');
+            } catch(err) {
+                console.error("Error fetching user profile", err);
+                showModal('API Error', 'Could not fetch user profile. Check API permissions.');
             }
         }
         
@@ -383,7 +413,6 @@
             if (state.accessToken) {
                 google.accounts.oauth2.revoke(state.accessToken, () => {});
             }
-            // Reset state
             state.isLoggedIn = false;
             state.accessToken = null;
             state.userProfile = null;
@@ -425,7 +454,6 @@
                 const messages = response.result.messages || [];
                 if (messages.length === 0) {
                     addLog('No new emails found.');
-                    setProcessingState(false);
                     return;
                 }
 
@@ -450,7 +478,6 @@
                         continue;
                     }
                     
-                    // Process with AI
                     const body = getEmailBody(message.result.payload);
                     const aiResponse = await processEmailWithAI(subjectHeader.value, fromHeader.value, body);
 
@@ -463,7 +490,6 @@
                     
                     let actionTaken = 'AI Reply Sent';
 
-                    // Perform actions based on AI response
                     if (aiResponse.category.toLowerCase() === 'meeting request' && state.integrations.calendar && aiResponse.meetingDetails) {
                         await createCalendarEvent(aiResponse.meetingDetails, fromHeader.value, subjectHeader.value);
                         actionTaken = `Meeting scheduled: ${aiResponse.meetingDetails.summary}`;
@@ -497,15 +523,18 @@
         
         function getEmailBody(payload) {
              let body = '';
-             if (payload.body.size > 0) {
-                body = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
-             } else if (payload.parts) {
-                const textPart = payload.parts.find(p => p.mimeType === 'text/plain');
-                if (textPart) {
-                    body = atob(textPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+             let parts = [payload];
+             while(parts.length) {
+                let part = parts.shift();
+                if(part.mimeType === 'text/plain' && part.body && part.body.data) {
+                    body = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                    break; // Prefer plain text
+                }
+                if (part.parts) {
+                    parts = parts.concat(part.parts);
                 }
              }
-             return body.substring(0, 2000); // Limit body size for AI prompt
+             return body.substring(0, 4000); // Limit body size for AI prompt
         }
 
         // --- AI Processing ---
@@ -554,7 +583,6 @@
                 const result = await response.json();
                 const text = result.candidates[0].content.parts[0].text;
                 
-                // Clean and parse the JSON response from the AI
                 const jsonString = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
                 return JSON.parse(jsonString);
 
@@ -567,7 +595,7 @@
 
         // --- Action Functions (Reply, Calendar, Sheets) ---
         async function sendReply(originalMessage, replyText) {
-            if (!replyText || replyText.toLowerCase() === 'no reply needed') {
+            if (!replyText || replyText.toLowerCase().includes('no reply needed')) {
                 addLog(`AI decided no reply was needed for subject: ${originalMessage.payload.headers.find(h=>h.name.toLowerCase() === 'subject').value}.`);
                 return;
             }
@@ -647,7 +675,7 @@
             } catch (err) {
                 console.error('Sheets logging error:', err);
                 addLog('Failed to log to Google Sheet.', 'error');
-                state.integrations.sheetId = null; // Reset to force re-check next time
+                state.integrations.sheetId = null; 
             }
         }
         
@@ -726,12 +754,18 @@
         // --- Event Listeners ---
         window.onload = () => {
             loadState();
-            const checkGapi = setInterval(() => {
-                if (window.gapi && window.google) {
-                    gapi = window.gapi; google = window.google;
-                    clearInterval(checkGapi);
-                }
-            }, 100);
+            // The gapi script is loaded with 'async defer'. 
+            // We need to provide callback functions that gapi will call once loaded.
+            window.gapiLoaded = gapiLoaded;
+            window.gisLoaded = gisLoaded;
+
+            // Add callbacks to script tags
+            const gapiScript = document.querySelector('script[src="https://apis.google.com/js/api.js"]');
+            gapiScript.setAttribute('onload', 'gapiLoaded()');
+
+            const gisScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+            gisScript.setAttribute('onload', 'gisLoaded()');
+            
             updateUI();
         };
 
