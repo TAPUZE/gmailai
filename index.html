@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI-Powered Gmail Assistant</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <script src="https://accounts.google.com/gsi/client" async defer onload="gisLoaded()"></script>
+    <script src="https://apis.google.com/js/api.js" async defer onload="gapiLoaded()"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -341,16 +341,13 @@
 
         // --- Google API & Auth Logic ---
         function gapiLoaded() {
+            gapi = window.gapi;
             gapi.load('client', initializeGapiClient);
         }
 
         async function initializeGapiClient() {
-            // This function is called once the gapi client is loaded.
-            // It prepares the client for API calls.
             try {
-                await gapi.client.init({
-                    discoveryDocs: DISCOVERY_DOCS,
-                });
+                await gapi.client.init({ discoveryDocs: DISCOVERY_DOCS });
                 authButton.classList.remove('disabled-ui');
                 authButtonStatus.textContent = 'Ready to sign in.';
             } catch (err) {
@@ -360,13 +357,9 @@
         }
 
         function gisLoaded() {
-            // This function is called once the Google Identity Services script is loaded.
-            // It prepares the OAuth2 token client.
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: state.clientId,
-                scope: API_SCOPES,
-                callback: handleCredentialResponse,
-            });
+            google = window.google;
+            // The token client is initialized on-demand in handleAuthClick
+            // to ensure it uses the latest client ID from the input field.
         }
         
         const handleAuthClick = () => {
@@ -377,8 +370,11 @@
             }
             saveState();
 
-            // Re-initialize the token client with the potentially new Client ID
-            gisLoaded();
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: state.clientId,
+                scope: API_SCOPES,
+                callback: handleCredentialResponse,
+            });
             
             if (tokenClient) {
                 tokenClient.requestAccessToken();
@@ -393,7 +389,6 @@
                 return;
             }
             state.accessToken = response.access_token;
-            // The GAPI client is already initialized, just set the token
             gapi.client.setToken({ access_token: state.accessToken });
 
             try {
@@ -454,6 +449,7 @@
                 const messages = response.result.messages || [];
                 if (messages.length === 0) {
                     addLog('No new emails found.');
+                    setProcessingState(false);
                     return;
                 }
 
@@ -754,18 +750,6 @@
         // --- Event Listeners ---
         window.onload = () => {
             loadState();
-            // The gapi script is loaded with 'async defer'. 
-            // We need to provide callback functions that gapi will call once loaded.
-            window.gapiLoaded = gapiLoaded;
-            window.gisLoaded = gisLoaded;
-
-            // Add callbacks to script tags
-            const gapiScript = document.querySelector('script[src="https://apis.google.com/js/api.js"]');
-            gapiScript.setAttribute('onload', 'gapiLoaded()');
-
-            const gisScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-            gisScript.setAttribute('onload', 'gisLoaded()');
-            
             updateUI();
         };
 
