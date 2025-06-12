@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered Gmail Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://apis.google.com/js/api.js" async defer></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #4F46E5;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #4F46E5;
+        }
+        .disabled-ui {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        details > summary {
+            list-style: none;
+        }
+        details > summary::-webkit-details-marker {
+            display: none;
+        }
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="app" class="max-w-4xl mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900">AI-Powered Gmail Assistant</h1>
+            <p class="text-gray-600 mt-2">Intelligently manage your inbox with AI, Sheets, and Calendar integration.</p>
+        </header>
+
+        <!-- Login Screen -->
+        <div id="login-screen" class="bg-white p-8 rounded-lg shadow-md">
+            <h2 class="text-2xl font-semibold mb-4">Setup</h2>
+            <p class="mb-4 text-gray-600">Please provide your Google OAuth 2.0 Client ID to connect your Google Workspace.</p>
+            <div class="mb-4">
+                <label for="client-id-input" class="block text-sm font-medium text-gray-700 mb-1">Google Client ID</label>
+                <input type="text" id="client-id-input" placeholder="Paste your Client ID here" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+            <button id="auth-button" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                Sign in with Google
+            </button>
+            <p class="text-xs text-gray-500 mt-4">This app requires permissions for Gmail, Calendar, Sheets, and Docs to function.</p>
+        </div>
+
+        <!-- Main Application -->
+        <div id="main-app" class="hidden">
+            <!-- User Info and Controls -->
+            <section id="user-info" class="bg-white p-6 rounded-lg shadow-md mb-8 flex items-center justify-between">
+                <div class="flex items-center">
+                    <img id="user-image" src="" alt="User profile" class="w-12 h-12 rounded-full mr-4">
+                    <div>
+                        <p class="font-semibold text-lg" id="user-name"></p>
+                        <p class="text-gray-500" id="user-email"></p>
+                    </div>
+                </div>
+                <button id="sign-out-button" class="bg-red-500 text-white font-semibold py-2 px-4 rounded-md hover:bg-red-600 transition duration-150 ease-in-out">
+                    Sign Out
+                </button>
+            </section>
+
+            <!-- Main Control Panel -->
+            <div class="grid lg:grid-cols-2 gap-8">
+                <!-- Configuration -->
+                <section id="config-section" class="bg-white p-6 rounded-lg shadow-md space-y-6">
+                    <div>
+                        <h2 class="text-2xl font-semibold mb-4 border-b pb-2">Master Control</h2>
+                        <div class="flex items-center justify-between">
+                            <span class="text-lg font-medium text-gray-700">AI Assistant Status:</span>
+                            <div class="relative inline-block w-14 align-middle select-none transition duration-200 ease-in">
+                                <input type="checkbox" name="toggle" id="autoresponder-toggle" class="toggle-checkbox absolute block w-7 h-7 rounded-full bg-white border-4 appearance-none cursor-pointer"/>
+                                <label for="autoresponder-toggle" class="toggle-label block overflow-hidden h-7 rounded-full bg-gray-300 cursor-pointer"></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="config-form" class="space-y-6">
+                        <!-- AI & Reply Configuration -->
+                        <details class="group" open>
+                            <summary class="flex justify-between items-center cursor-pointer font-semibold text-lg border-b pb-2">
+                                AI & Reply Configuration
+                                <span class="transition-transform duration-300 group-open:rotate-180">▼</span>
+                            </summary>
+                            <div class="pt-4 space-y-4">
+                                <div>
+                                    <label for="ai-prompt" class="block text-sm font-medium text-gray-700">AI Personality/Instructions</label>
+                                    <textarea id="ai-prompt" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></textarea>
+                                    <p class="text-xs text-gray-500 mt-1">Guide the AI's tone and style. The AI will use this as a base for its replies.</p>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- Integrations Configuration -->
+                        <details class="group">
+                            <summary class="flex justify-between items-center cursor-pointer font-semibold text-lg border-b pb-2">
+                                AI-Powered Integrations
+                                <span class="transition-transform duration-300 group-open:rotate-180">▼</span>
+                            </summary>
+                            <div class="pt-4 space-y-4">
+                                <div class="flex items-center">
+                                    <input id="calendar-toggle" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                    <label for="calendar-toggle" class="ml-2 block text-sm text-gray-900">Enable Google Calendar Integration</label>
+                                </div>
+                                <div class="flex items-center">
+                                    <input id="sheets-toggle" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                    <label for="sheets-toggle" class="ml-2 block text-sm text-gray-900">Enable Google Sheets Logging</label>
+                                </div>
+                                <div>
+                                    <label for="sheet-name" class="block text-sm font-medium text-gray-700">Google Sheet Name for Logs</label>
+                                    <input type="text" id="sheet-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                                </div>
+                            </div>
+                        </details>
+                        
+                        <button id="save-config-button" class="w-full bg-indigo-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-indigo-700 transition duration-150 ease-in-out">
+                            Save Configuration
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Status & Log -->
+                <section id="log-section" class="bg-white p-6 rounded-lg shadow-md">
+                     <h2 class="text-2xl font-semibold mb-4 border-b pb-2">Activity Log</h2>
+                     <div id="status-container" class="mb-4 p-4 rounded-lg text-center flex items-center justify-center">
+                         <p class="font-medium text-lg" id="status-text">OFF</p>
+                         <div id="processing-spinner" class="spinner hidden"></div>
+                     </div>
+                     <div class="h-96 overflow-y-auto border rounded-md p-2 bg-gray-50">
+                         <ul id="log-list" class="text-sm space-y-2">
+                             <li class="text-gray-500">Waiting for activity...</li>
+                         </ul>
+                     </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Modal -->
+    <div id="modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title"></h3>
+                <div class="mt-2 px-7 py-3">
+                    <p class="text-sm text-gray-500" id="modal-message"></p>
+                </div>
+                <div class="items-center px-4 py-3">
+                    <button id="modal-close" class="px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const loginScreen = document.getElementById('login-screen');
+        const mainApp = document.getElementById('main-app');
+        const clientIdInput = document.getElementById('client-id-input');
+        const authButton = document.getElementById('auth-button');
+        const signOutButton = document.getElementById('sign-out-button');
+        const userImage = document.getElementById('user-image');
+        const userName = document.getElementById('user-name');
+        const userEmail = document.getElementById('user-email');
+        const autoresponderToggle = document.getElementById('autoresponder-toggle');
+        const configForm = document.getElementById('config-form');
+        const aiPromptTextarea = document.getElementById('ai-prompt');
+        const calendarToggle = document.getElementById('calendar-toggle');
+        const sheetsToggle = document.getElementById('sheets-toggle');
+        const sheetNameInput = document.getElementById('sheet-name');
+        const saveConfigButton = document.getElementById('save-config-button');
+        const statusText = document.getElementById('status-text');
+        const statusContainer = document.getElementById('status-container');
+        const processingSpinner = document.getElementById('processing-spinner');
+        const logList = document.getElementById('log-list');
+        const modal = document.getElementById('modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalMessage = document.getElementById('modal-message');
+        const modalClose = document.getElementById('modal-close');
+
+        // --- App State ---
+        let state = {
+            isLoggedIn: false,
+            isAssistantOn: false,
+            clientId: '',
+            accessToken: null,
+            userProfile: null,
+            aiPrompt: 'You are a helpful and brief assistant. Your goal is to reply to emails politely.',
+            integrations: {
+                calendar: false,
+                sheets: false,
+                sheetName: 'AI Email Assistant Log',
+                sheetId: null,
+            },
+            repliedLog: [],
+            checkInterval: null
+        };
+        
+        const API_SCOPES = [
+            'https://www.googleapis.com/auth/gmail.modify',
+            'https://www.googleapis.com/auth/gmail.send',
+            'https://www.googleapis.com/auth/calendar.events',
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/documents' // Included for future use
+        ].join(' ');
+        
+        const DISCOVERY_DOCS = [
+            "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest",
+            "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest",
+            "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
+            "https://www.googleapis.com/discovery/v1/apis/docs/v1/rest"
+        ];
+        
+        let gapi = null;
+        let google = null;
+
+        // --- Utility & Modal Functions ---
+        const showModal = (title, message) => {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            modal.classList.remove('hidden');
+        };
+
+        const hideModal = () => {
+            modal.classList.add('hidden');
+        };
+        
+        const addLog = (message, type = 'info') => {
+            const li = document.createElement('li');
+            const now = new Date().toLocaleTimeString();
+            let colorClass = 'text-gray-700';
+            if (type === 'success') colorClass = 'text-green-600';
+            if (type === 'error') colorClass = 'text-red-600';
+            if (type === 'ai') colorClass = 'text-blue-600';
+            li.className = `break-words ${colorClass}`;
+            li.innerHTML = `<span class="font-mono text-xs">${now}</span>: ${message}`;
+            if (logList.firstChild && logList.firstChild.textContent.includes('Waiting for activity...')) {
+                logList.innerHTML = '';
+            }
+            logList.prepend(li);
+        };
+
+        // --- Data Persistence ---
+        const saveState = () => {
+            const dataToSave = {
+                clientId: state.clientId,
+                isAssistantOn: state.isAssistantOn,
+                aiPrompt: state.aiPrompt,
+                integrations: state.integrations,
+                repliedLog: state.repliedLog,
+            };
+            localStorage.setItem('gmailAIAssistantData', JSON.stringify(dataToSave));
+        };
+
+        const loadState = () => {
+            const savedData = localStorage.getItem('gmailAIAssistantData');
+            if (savedData) {
+                const parsedData = JSON.parse(savedData);
+                state.clientId = parsedData.clientId || '';
+                state.isAssistantOn = parsedData.isAssistantOn || false;
+                state.aiPrompt = parsedData.aiPrompt || state.aiPrompt;
+                state.repliedLog = parsedData.repliedLog || [];
+                if(parsedData.integrations) {
+                    state.integrations = { ...state.integrations, ...parsedData.integrations };
+                }
+                
+                clientIdInput.value = state.clientId;
+                aiPromptTextarea.value = state.aiPrompt;
+                calendarToggle.checked = state.integrations.calendar;
+                sheetsToggle.checked = state.integrations.sheets;
+                sheetNameInput.value = state.integrations.sheetName;
+            }
+        };
+
+        // --- UI Update Functions ---
+        const updateUI = () => {
+            if (state.isLoggedIn) {
+                loginScreen.classList.add('hidden');
+                mainApp.classList.remove('hidden');
+                userImage.src = state.userProfile.picture;
+                userName.textContent = state.userProfile.name;
+                userEmail.textContent = state.userProfile.email;
+            } else {
+                loginScreen.classList.remove('hidden');
+                mainApp.classList.add('hidden');
+            }
+            autoresponderToggle.checked = state.isAssistantOn;
+            updateStatusIndicator();
+        };
+
+        const updateStatusIndicator = () => {
+             const isProcessing = !processingSpinner.classList.contains('hidden');
+            if (state.isAssistantOn) {
+                statusText.textContent = isProcessing ? "PROCESSING" : "ON";
+                statusContainer.classList.remove('bg-red-100', 'text-red-700');
+                statusContainer.classList.add('bg-green-100', 'text-green-700');
+                configForm.classList.add('disabled-ui');
+            } else {
+                statusText.textContent = "OFF";
+                statusContainer.classList.remove('bg-green-100', 'text-green-700');
+                statusContainer.classList.add('bg-red-100', 'text-red-700');
+                configForm.classList.remove('disabled-ui');
+            }
+        };
+        
+        const setProcessingState = (isProcessing) => {
+            if (isProcessing) {
+                processingSpinner.classList.remove('hidden');
+            } else {
+                processingSpinner.classList.add('hidden');
+            }
+            updateStatusIndicator();
+        }
+
+        // --- Google API & Auth Logic ---
+        const handleAuthClick = () => {
+            state.clientId = clientIdInput.value;
+            if (!state.clientId) {
+                showModal('Error', 'Please enter a valid Google Client ID.');
+                return;
+            }
+            saveState();
+            const tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: state.clientId,
+                scope: API_SCOPES,
+                callback: handleCredentialResponse,
+            });
+            tokenClient.requestAccessToken();
+        };
+        
+        async function handleCredentialResponse(response) {
+            if (response.error) {
+                showModal('Authentication Error', response.error_description || 'Failed to get token.');
+                return;
+            }
+            state.accessToken = response.access_token;
+            await loadGapiClient();
+        }
+
+        async function loadGapiClient() {
+            gapi.client.setToken({ access_token: state.accessToken });
+            try {
+                for(const doc of DISCOVERY_DOCS) {
+                    await gapi.client.load(doc);
+                }
+                const profile = await gapi.client.gmail.users.getProfile({ userId: 'me' });
+                state.userProfile = profile.result;
+                state.isLoggedIn = true;
+                addLog('Successfully signed in and APIs loaded.', 'success');
+                updateUI();
+                startOrStopEngine();
+            } catch (err) {
+                console.error("GAPI client load error:", err);
+                showModal('API Error', 'Failed to load Google APIs. Check console for details.');
+            }
+        }
+        
+        const handleSignOut = () => {
+            if (state.accessToken) {
+                google.accounts.oauth2.revoke(state.accessToken, () => {});
+            }
+            // Reset state
+            state.isLoggedIn = false;
+            state.accessToken = null;
+            state.userProfile = null;
+            state.isAssistantOn = false;
+            if(state.checkInterval) clearInterval(state.checkInterval);
+            state.checkInterval = null;
+            
+            updateUI();
+            addLog('Signed out.');
+        };
+        
+        // --- Core Assistant Engine ---
+        const startOrStopEngine = () => {
+            if (state.isAssistantOn && state.isLoggedIn) {
+                if (!state.checkInterval) {
+                    addLog('AI assistant started.');
+                    checkEmails();
+                    state.checkInterval = setInterval(checkEmails, 30000); // Check every 30 seconds
+                }
+            } else {
+                if (state.checkInterval) {
+                    clearInterval(state.checkInterval);
+                    state.checkInterval = null;
+                    addLog('AI assistant stopped.');
+                }
+            }
+        };
+
+        async function checkEmails() {
+            if (!state.isAssistantOn || !state.isLoggedIn) return;
+            addLog('Checking for new emails...');
+            setProcessingState(true);
+            try {
+                const response = await gapi.client.gmail.users.messages.list({
+                    userId: 'me',
+                    q: 'is:unread -from:me -in:chats',
+                });
+
+                const messages = response.result.messages || [];
+                if (messages.length === 0) {
+                    addLog('No new emails found.');
+                    setProcessingState(false);
+                    return;
+                }
+
+                addLog(`Found ${messages.length} new email(s). Processing with AI...`, 'info');
+
+                for (const messageHeader of messages.slice(0, 5)) { // Process up to 5 at a time
+                    if (state.repliedLog.includes(messageHeader.id)) continue;
+
+                    const message = await gapi.client.gmail.users.messages.get({
+                        userId: 'me',
+                        id: messageHeader.id,
+                        format: 'full'
+                    });
+
+                    const fromHeader = message.result.payload.headers.find(h => h.name.toLowerCase() === 'from');
+                    const subjectHeader = message.result.payload.headers.find(h => h.name.toLowerCase() === 'subject');
+                    const precedenceHeader = message.result.payload.headers.find(h => ['precedence', 'x-precedence'].includes(h.name.toLowerCase()));
+                    
+                    if (precedenceHeader && (precedenceHeader.value === 'bulk' || precedenceHeader.value === 'junk' || precedenceHeader.value === 'list')) {
+                        addLog(`Skipping bulk/list email: ${subjectHeader.value}`);
+                        await markAsRead(messageHeader.id);
+                        continue;
+                    }
+                    
+                    // Process with AI
+                    const body = getEmailBody(message.result.payload);
+                    const aiResponse = await processEmailWithAI(subjectHeader.value, fromHeader.value, body);
+
+                    if (!aiResponse) {
+                        addLog(`AI processing failed for email from ${fromHeader.value}.`, 'error');
+                        continue;
+                    }
+
+                    addLog(`AI classified email from ${fromHeader.value} as: ${aiResponse.category}`, 'ai');
+                    
+                    let actionTaken = 'AI Reply Sent';
+
+                    // Perform actions based on AI response
+                    if (aiResponse.category.toLowerCase() === 'meeting request' && state.integrations.calendar && aiResponse.meetingDetails) {
+                        await createCalendarEvent(aiResponse.meetingDetails, fromHeader.value, subjectHeader.value);
+                        actionTaken = `Meeting scheduled: ${aiResponse.meetingDetails.summary}`;
+                    }
+                    
+                    await sendReply(message.result, aiResponse.reply);
+                    await markAsReadAndLabel(messageHeader.id);
+                    
+                    if(state.integrations.sheets) {
+                        await logToGoogleSheet({
+                            timestamp: new Date().toISOString(),
+                            from: fromHeader.value,
+                            subject: subjectHeader.value,
+                            category: aiResponse.category,
+                            action: actionTaken,
+                            reply: aiResponse.reply
+                        });
+                    }
+
+                    state.repliedLog.unshift(messageHeader.id);
+                    if (state.repliedLog.length > 200) state.repliedLog.pop();
+                    saveState();
+                }
+            } catch (err) {
+                console.error('Error checking emails:', err);
+                addLog('Error checking emails. See console.', 'error');
+            } finally {
+                setProcessingState(false);
+            }
+        }
+        
+        function getEmailBody(payload) {
+             let body = '';
+             if (payload.body.size > 0) {
+                body = atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+             } else if (payload.parts) {
+                const textPart = payload.parts.find(p => p.mimeType === 'text/plain');
+                if (textPart) {
+                    body = atob(textPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+                }
+             }
+             return body.substring(0, 2000); // Limit body size for AI prompt
+        }
+
+        // --- AI Processing ---
+        async function processEmailWithAI(subject, from, body) {
+            const apiKey = ""; // Canvas will provide this
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            
+            const prompt = `
+                Analyze the following email and provide a JSON response.
+                Your personality for replies should be: "${state.aiPrompt}".
+                Today's date is ${new Date().toDateString()}.
+                
+                Email Subject: "${subject}"
+                From: "${from}"
+                Body:
+                ---
+                ${body}
+                ---
+                
+                Based on the email, provide a response in the following JSON format. Do not include any text outside of the JSON block.
+                
+                {
+                  "category": "Identify one: General Inquiry, Meeting Request, Spam, Marketing, Urgent Task, Other",
+                  "reply": "Craft a brief, polite reply based on your personality. If it's a meeting request, confirm you'll check the calendar. If spam, say 'No reply needed'.",
+                  "meetingDetails": {
+                    "summary": "A brief summary for the calendar event, e.g., 'Meeting with John Doe'",
+                    "start": "ISO 8601 string for the start time (e.g., '2025-06-15T14:00:00-07:00'). Infer the date and year.",
+                    "end": "ISO 8601 string for the end time. If no duration is mentioned, assume 30 minutes."
+                  }
+                }
+                
+                If the email is not a meeting request, the "meetingDetails" object should be null.
+            `;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API request failed with status ${response.status}`);
+                }
+
+                const result = await response.json();
+                const text = result.candidates[0].content.parts[0].text;
+                
+                // Clean and parse the JSON response from the AI
+                const jsonString = text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1);
+                return JSON.parse(jsonString);
+
+            } catch (error) {
+                console.error("AI processing error:", error);
+                addLog('AI analysis failed. See console for details.', 'error');
+                return null;
+            }
+        }
+
+        // --- Action Functions (Reply, Calendar, Sheets) ---
+        async function sendReply(originalMessage, replyText) {
+            if (!replyText || replyText.toLowerCase() === 'no reply needed') {
+                addLog(`AI decided no reply was needed for subject: ${originalMessage.payload.headers.find(h=>h.name.toLowerCase() === 'subject').value}.`);
+                return;
+            }
+
+            const getHeader = (headers, name) => headers.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+            
+            const headers = originalMessage.payload.headers;
+            const subject = getHeader(headers, 'subject');
+            const from = getHeader(headers, 'from');
+            const messageId = getHeader(headers, 'message-id');
+            const references = getHeader(headers, 'references');
+            const replySubject = subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
+
+            const emailBody = [
+                `Content-Type: text/plain; charset="UTF-8"`,
+                `to: ${from}`, `from: ${state.userProfile.emailAddress}`, `subject: ${replySubject}`,
+                `In-Reply-To: ${messageId}`, `References: ${references ? references + ' ' : ''}${messageId}`,
+                ``, replyText
+            ].join('\n');
+
+            const base64EncodedEmail = btoa(unescape(encodeURIComponent(emailBody))).replace(/\+/g, '-').replace(/\//g, '_');
+
+            try {
+                await gapi.client.gmail.users.messages.send({
+                    userId: 'me',
+                    resource: { raw: base64EncodedEmail, threadId: originalMessage.threadId }
+                });
+                addLog(`Replied to email from: ${from}`, 'success');
+            } catch (err) {
+                console.error("Send error:", err);
+                addLog(`Failed to reply to: ${from}`, 'error');
+            }
+        }
+        
+        async function createCalendarEvent(details, from, subject) {
+            if (!details.summary || !details.start || !details.end) {
+                addLog(`AI detected meeting but details were incomplete. Subject: ${subject}`, 'error');
+                return;
+            }
+            const event = {
+                'summary': details.summary,
+                'description': `Event created by AI Assistant from an email from ${from}.\n\nSubject: ${subject}`,
+                'start': { 'dateTime': details.start, },
+                'end': { 'dateTime': details.end, },
+                'attendees': [{ 'email': from.match(/<(.+)>/)?.[1] || from }]
+            };
+            try {
+                await gapi.client.calendar.events.insert({
+                    'calendarId': 'primary',
+                    'resource': event,
+                });
+                addLog(`Event "${details.summary}" created in Calendar.`, 'success');
+            } catch (err) {
+                console.error("Calendar event creation error:", err);
+                addLog(`Failed to create calendar event for subject: ${subject}`, 'error');
+            }
+        }
+
+        async function logToGoogleSheet(data) {
+             if (!state.integrations.sheetId) {
+                await findOrCreateSheet();
+            }
+            if (!state.integrations.sheetId) {
+                addLog('Could not find or create Google Sheet. Logging disabled.', 'error');
+                return;
+            }
+
+            const values = [[data.timestamp, data.from, data.subject, data.category, data.action, data.reply]];
+            try {
+                 await gapi.client.sheets.spreadsheets.values.append({
+                    spreadsheetId: state.integrations.sheetId,
+                    range: 'A1',
+                    valueInputOption: 'USER_ENTERED',
+                    resource: { values: values },
+                });
+                addLog(`Logged action to Google Sheet: ${state.integrations.sheetName}`, 'success');
+            } catch (err) {
+                console.error('Sheets logging error:', err);
+                addLog('Failed to log to Google Sheet.', 'error');
+                state.integrations.sheetId = null; // Reset to force re-check next time
+            }
+        }
+        
+        async function findOrCreateSheet() {
+             addLog(`Searching for Google Sheet: "${state.integrations.sheetName}"...`);
+             try {
+                const response = await gapi.client.drive.files.list({
+                    q: `mimeType='application/vnd.google-apps.spreadsheet' and name='${state.integrations.sheetName}' and trashed=false`,
+                    fields: 'files(id, name)'
+                });
+                if (response.result.files && response.result.files.length > 0) {
+                    state.integrations.sheetId = response.result.files[0].id;
+                    addLog('Found existing Google Sheet.', 'success');
+                    return;
+                }
+                
+                addLog('Sheet not found. Creating a new one...');
+                const spreadsheet = await gapi.client.sheets.spreadsheets.create({
+                    properties: { title: state.integrations.sheetName }
+                });
+                state.integrations.sheetId = spreadsheet.result.spreadsheetId;
+                 const headerValues = [['Timestamp', 'From', 'Subject', 'AI Category', 'Action Taken', 'Reply Sent']];
+                 await gapi.client.sheets.spreadsheets.values.update({
+                    spreadsheetId: state.integrations.sheetId,
+                    range: 'A1',
+                    valueInputOption: 'RAW',
+                    resource: { values: headerValues }
+                });
+                addLog('Created and configured new Google Sheet.', 'success');
+                saveState();
+
+             } catch(err) {
+                console.error("Sheet find/create error:", err);
+                addLog('Could not access Google Drive to find sheet. Check Drive API permissions.', 'error');
+             }
+        }
+
+        async function markAsReadAndLabel(messageId) {
+            const labelName = "AI-Assistant-Handled";
+            let labelId = await getLabelId(labelName);
+            if (!labelId) labelId = await createLabel(labelName);
+
+            if (labelId) {
+                await gapi.client.gmail.users.messages.modify({
+                    userId: 'me',
+                    id: messageId,
+                    resource: { addLabelIds: [labelId], removeLabelIds: ['UNREAD'] }
+                });
+            } else {
+                 await markAsRead(messageId);
+            }
+        }
+        
+         async function markAsRead(messageId) {
+             await gapi.client.gmail.users.messages.modify({
+                userId: 'me', id: messageId, resource: { removeLabelIds: ['UNREAD'] }
+            });
+        }
+
+        async function getLabelId(labelName) {
+            const response = await gapi.client.gmail.users.labels.list({ userId: 'me' });
+            const label = response.result.labels.find(l => l.name === labelName);
+            return label ? label.id : null;
+        }
+
+        async function createLabel(labelName) {
+            try {
+                const response = await gapi.client.gmail.users.labels.create({
+                    userId: 'me',
+                    resource: { name: labelName, labelListVisibility: 'labelShow', messageListVisibility: 'show' }
+                });
+                return response.result.id;
+            } catch (err) { return null; }
+        }
+
+        // --- Event Listeners ---
+        window.onload = () => {
+            loadState();
+            const checkGapi = setInterval(() => {
+                if (window.gapi && window.google) {
+                    gapi = window.gapi; google = window.google;
+                    clearInterval(checkGapi);
+                }
+            }, 100);
+            updateUI();
+        };
+
+        authButton.addEventListener('click', handleAuthClick);
+        signOutButton.addEventListener('click', handleSignOut);
+        modalClose.addEventListener('click', hideModal);
+        autoresponderToggle.addEventListener('change', (e) => {
+            state.isAssistantOn = e.target.checked;
+            updateStatusIndicator();
+            saveState();
+            startOrStopEngine();
+        });
+
+        saveConfigButton.addEventListener('click', () => {
+            state.aiPrompt = aiPromptTextarea.value;
+            state.integrations.calendar = calendarToggle.checked;
+            state.integrations.sheets = sheetsToggle.checked;
+            state.integrations.sheetName = sheetNameInput.value;
+            state.integrations.sheetId = null; // Force re-check on next log
+            saveState();
+            showModal('Success', 'Your new configuration has been saved.');
+            addLog('Configuration saved.');
+        });
+    </script>
+</body>
+</html>
